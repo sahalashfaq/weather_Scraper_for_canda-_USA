@@ -38,10 +38,10 @@ div[data-test-connection-state="CONNECTED"] {
     background: var(--background);
 }
 
-header,
+/* header,
 footer {
     display: none !important;
-}
+} */
 
 div[data-testid="stFileUploader"] {
     width: 100%;
@@ -297,4 +297,5 @@ button div[data-testid="stMarkdownContainer"] p{
 }
 label div[data-testid="stMarkdownContainer"] p{
     color: var(--white) !important;
+
 }
