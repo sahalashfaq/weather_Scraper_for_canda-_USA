@@ -3,33 +3,32 @@ import requests
 import folium
 from streamlit_folium import st_folium
 import uuid
+import random
 from bs4 import BeautifulSoup
-from urllib.parse import quote
 
 # ------------------------
-# Local CSS Loader
+# Fake Temp Email Generator (instead of Mail.tm)
+# ------------------------
+def get_temp_email():
+    realistic_domains = [
+        "gmail.com", "yahoo.com", "outlook.com", "hotmail.com",
+        "proton.me", "mail.com", "aol.com", "icloud.com"
+    ]
+    username = f"user{uuid.uuid4().hex[:6]}"
+    fake_domain = random.choice(realistic_domains)
+    return f"{username}@{fake_domain}", "nopassword"
+
+
+# ------------------------
+# Load local CSS
 # ------------------------
 def local_css(file_name):
     try:
         with open(file_name, "r", encoding="utf-8") as f:
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
     except FileNotFoundError:
-        st.warning("⚠️ style.css not found. Using default styles.")
+        pass
 
-local_css("style.css")
-
-# ------------------------
-# Temp Email (1secmail.com)
-# ------------------------
-def get_temp_email():
-    try:
-        resp = requests.get("https://www.1secmail.com/api/v1/?action=genRandomMailbox&count=1")
-        resp.raise_for_status()
-        email = resp.json()[0]
-        # password is not required for 1secmail, just return dummy
-        return email, "nopassword"
-    except Exception as e:
-        raise Exception(f"Temp email service unavailable: {e}")
 
 # ------------------------
 # Weather.gov Functions (USA)
@@ -52,6 +51,7 @@ def get_current_conditions(stations_url):
     obs_url = f"https://api.weather.gov/stations/{station_id}/observations/latest"
     return fetch_json(obs_url).get("properties", {})
 
+
 # ------------------------
 # Canada Scraper
 # ------------------------
@@ -68,23 +68,19 @@ def scrape_weather_canada_by_coords(lat, lon):
         blocks = []
         if main_content:
             for div in main_content.select("div.hidden-xs.row.no-gutters"):
-                title = "Overview"
-                text = div.get_text(separator="\n", strip=True)
-                blocks.append({"title": title, "text": text})
+                blocks.append({"title": "Overview", "text": div.get_text("\n", strip=True)})
 
             sections = main_content.select("section.hidden-xs")
             if sections:
                 forecast_section = sections[-1]
                 heading = forecast_section.find("h2") or forecast_section.find("h3")
                 title = heading.get_text(strip=True) if heading else "Forecast"
-                text = forecast_section.get_text(separator="\n", strip=True)
-                blocks.append({"title": title, "text": text})
+                blocks.append({"title": title, "text": forecast_section.get_text("\n", strip=True)})
 
-            for idx, div in enumerate(main_content.select("div.div-column")):
+            for div in main_content.select("div.div-column"):
                 heading = div.find("h2") or div.find("h3")
-                title = heading.get_text(strip=True)
-                text = div.get_text(separator="\n", strip=True)
-                blocks.append({"title": title, "text": text})
+                title = heading.get_text(strip=True) if heading else "Section"
+                blocks.append({"title": title, "text": div.get_text("\n", strip=True)})
 
         current = {}
         temp = soup.select_one(".wxo-metric-hide")
@@ -97,20 +93,16 @@ def scrape_weather_canada_by_coords(lat, lon):
         current["humidity"] = humid.find_next("dd").text.strip() if humid else "N/A"
         current["wind"] = wind.find_next("dd").text.strip() if wind else "N/A"
 
-        return {
-            "conditions": current,
-            "forecast": [],
-            "blocks": blocks
-        }
-
+        return {"conditions": current, "blocks": blocks, "forecast": []}
     except Exception:
         return None
 
+
 # ------------------------
-# Other Scrapers
+# Other Scrapers (Placeholders)
 # ------------------------
 def scrape_weather_uk(city):
-    return {"forecast": [f"🇬🇧 UK MetOffice data: https://www.metoffice.gov.uk/weather/forecast"]}
+    return {"forecast": [f"🇬🇧 UK MetOffice: https://www.metoffice.gov.uk/weather/forecast"]}
 
 def scrape_weather_australia(state, city):
     try:
@@ -124,21 +116,14 @@ def scrape_weather_australia(state, city):
         for day_div in soup.select("div.day"):
             day_title = day_div.find("h2")
             title = day_title.get_text(strip=True) if day_title else "Unknown Day"
-
             details = []
             for dl in day_div.find_all("dl"):
-                dt = dl.find("dt")
-                dd = dl.find("dd")
+                dt, dd = dl.find("dt"), dl.find("dd")
                 if dt and dd:
                     details.append(f"{dt.get_text(strip=True)}: {dd.get_text(strip=True)}")
-
-            forecasts.append({
-                "day": title,
-                "details": details
-            })
+            forecasts.append({"day": title, "details": details})
 
         return {"conditions": {"city": city.title(), "state": state.upper()}, "forecast": forecasts}
-
     except Exception as e:
         return {"error": str(e)}
 
@@ -147,6 +132,7 @@ def scrape_weather_ecmwf(city):
 
 def scrape_weather_meteoalarm(city):
     return {"forecast": [f"Meteoalarm alerts: https://www.meteoalarm.org"]}
+
 
 country_scrapers = {
     "canada": scrape_weather_canada_by_coords,
@@ -159,12 +145,14 @@ country_scrapers = {
     "meteoalarm": scrape_weather_meteoalarm,
 }
 
+
 # ------------------------
 # Streamlit App
 # ------------------------
-st.set_page_config(page_title="Weather Scraper Tool", layout="centered")
+st.set_page_config(page_title="Weather Tool", layout="centered")
+local_css("style.css")
 
-# Session state init
+# --- Session state init ---
 if "geo" not in st.session_state:
     st.session_state.geo = None
 if "conditions" not in st.session_state:
@@ -172,13 +160,17 @@ if "conditions" not in st.session_state:
 if "forecast" not in st.session_state:
     st.session_state.forecast = None
 if "email" not in st.session_state:
-    try:
-        st.session_state.email, st.session_state.email_pass = get_temp_email()
-    except Exception as e:
-        st.warning(f"⚠️ Temp email not available: {e}")
-        st.session_state.email, st.session_state.email_pass = None, None
+    st.session_state.email, st.session_state.email_pass = get_temp_email()
 
-# --- Form ---
+# --- Sidebar Email ---
+with st.sidebar:
+    st.subheader("📧 Your Temp Email")
+    if st.session_state.email:
+        st.code(st.session_state.email, language="bash")
+    else:
+        st.warning("No temp email available")
+
+# --- Location Form ---
 with st.form("location_form"):
     country = st.text_input("Country", value="United States")
     province = st.text_input("State / Province", value="California")
@@ -186,14 +178,13 @@ with st.form("location_form"):
     submitted = st.form_submit_button("Get Weather Data")
 
 reset = st.button("Reset Location")
-
 if reset:
     st.session_state.geo = None
     st.session_state.conditions = None
     st.session_state.forecast = None
     st.rerun()
 
-# --- Process Form ---
+# --- If form submitted ---
 if submitted:
     st.session_state.geo = None
     st.session_state.conditions = None
@@ -218,7 +209,7 @@ if st.session_state.geo:
     geo = st.session_state.geo
     lat, lon = geo["lat"], geo["lon"]
 
-    with st.spinner("Fetching weather data... Please wait"):
+    with st.spinner("Fetching weather data..."):
         try:
             if country.lower() in ["united states", "usa", "us"]:
                 meta = get_nws_metadata(lat, lon).get("properties", {})
@@ -253,76 +244,56 @@ if st.session_state.geo:
                         st.error(f"Could not fetch weather data for {country}.")
                 else:
                     st.warning(f"Weather scraping for {country} not yet supported.")
-
         except Exception as e:
             st.error(f"Failed to fetch weather data: {e}")
 
     # --- Map ---
-    st.subheader("Map of Location & Coverage Area")
+    st.subheader("🗺️ Map of Location & Coverage Area")
     map_type = st.selectbox("Choose map type:", ["OpenStreetMap", "CartoDB positron", "CartoDB dark_matter"])
-
     m = folium.Map(location=[float(lat), float(lon)], zoom_start=9, tiles=map_type)
     folium.Marker([lat, lon], popup=geo.get("display_name", "Selected Location"), tooltip="Your Location").add_to(m)
-
     if "area_geo" in st.session_state and st.session_state.area_geo:
-        folium.GeoJson(
-            st.session_state.area_geo,
-            style_function=lambda x: {"fillColor": "#3186cc", "color": "blue", "weight": 2, "fillOpacity": 0.25},
-            tooltip="Forecast Coverage Area"
-        ).add_to(m)
-
+        folium.GeoJson(st.session_state.area_geo,
+                       style_function=lambda x: {"fillColor": "#3186cc", "color": "blue", "weight": 2, "fillOpacity": 0.25},
+                       tooltip="Forecast Coverage Area").add_to(m)
     st_folium(m, width=700, height=500)
 
-    # --- Conditions ---
+    # --- Current Conditions ---
     if st.session_state.conditions:
         if country.lower() in ["united states", "usa", "us"]:
             c = st.session_state.conditions
-            st.markdown('<p class="h1">Current Conditions (USA)</p>', unsafe_allow_html=True)
-            st.markdown('<hr>', unsafe_allow_html=True)
-            st.markdown(
-                f"""
-                **Weather** {c.get('textDescription', 'N/A')}  
-                🌡️ Temperature: {c.get('temperature', {}).get('value', 'N/A')} °C  
-                💨 Wind: {c.get('windSpeed', {}).get('value', 'N/A')} m/s {c.get('windDirection', {}).get('value', '')}°  
-                💧 Humidity: {c.get('relativeHumidity', {}).get('value', 'N/A')} %  
-                ⏱️ Observed: {c.get('timestamp', 'N/A')}
-                """
-            )
+            st.markdown("### 🌡️ Current Conditions (USA)")
+            st.write(f"**Weather:** {c.get('textDescription', 'N/A')}")
+            st.write(f"🌡️ Temp: {c.get('temperature', {}).get('value', 'N/A')} °C")
+            st.write(f"💨 Wind: {c.get('windSpeed', {}).get('value', 'N/A')} m/s {c.get('windDirection', {}).get('value', '')}°")
+            st.write(f"💧 Humidity: {c.get('relativeHumidity', {}).get('value', 'N/A')} %")
+            st.write(f"⏱️ Observed: {c.get('timestamp', 'N/A')}")
+
         elif country.lower() == "canada":
             if "blocks" in st.session_state.conditions:
-                st.subheader("Detailed Weather Data (Canada)")
-                st.markdown('<hr>', unsafe_allow_html=True)
+                st.markdown("### 🌡️ Detailed Weather (Canada)")
                 for block in st.session_state.conditions["blocks"]:
-                    st.markdown(f"### {block['title']}")
+                    st.markdown(f"**{block['title']}**")
                     st.write(block["text"])
                     st.markdown("---")
             else:
                 st.write(st.session_state.conditions)
 
         elif country.lower() in ["australia", "aus"]:
-            state = st.text_input("Enter state code (e.g., qld, nsw, vic):", "qld")
-            city = st.text_input("Enter city (e.g., brisbane, sydney):", "brisbane")
-            if st.button("Get Forecast"):
-                data = scrape_weather_australia(state, city)
-                if "error" in data:
-                    st.error(data["error"])
-                else:
-                    st.session_state.conditions = data["conditions"]
-                    st.session_state.forecast = data["forecast"]
+            if "error" in st.session_state.conditions:
+                st.error(st.session_state.conditions["error"])
+            else:
+                st.write(st.session_state.conditions)
 
     # --- Forecast ---
     if st.session_state.forecast:
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown("<p class='h2'>Forecast</p>", unsafe_allow_html=True)
+        st.markdown("### 📅 Forecast")
         for p in st.session_state.forecast[:7]:
-            if isinstance(p, dict):  # USA format
-                st.markdown(
-                    f"""
-                    **{p['name']}**  
-                    🌡️ {p['temperature']}°{p['temperatureUnit']}  
-                    💨 {p['windSpeed']} {p['windDirection']}  
-                    📝 {p['detailedForecast']}
-                    """
-                )
-            else:  # Other countries
+            if isinstance(p, dict) and "name" in p:  # USA format
+                st.markdown(f"**{p['name']}**")
+                st.write(f"🌡️ {p['temperature']}°{p['temperatureUnit']}")
+                st.write(f"💨 {p['windSpeed']} {p['windDirection']}")
+                st.write(f"📝 {p['detailedForecast']}")
+                st.markdown("---")
+            else:
                 st.write(p)
